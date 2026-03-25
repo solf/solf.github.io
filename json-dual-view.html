@@ -11,7 +11,7 @@
     --preview:#666;--tree-line:#333;--closer:#888;--drag:#3c3c3c;--drag-hl:#0e639c;
     --btn-bg:#0e639c;--btn-fg:#fff;--btn-hover:#1177bb;
     --bc-sep:#555;--bc-active:#ccc;--bc-hover:#d4d4d4;--title:#ccc;
-    --ok:#4ec94e;--err:#f44;--sel-bg:highlight;--sel-fg:highlighttext;
+    --arr:#d7ba7d;--ok:#4ec94e;--err:#f44;--sel-bg:highlight;--sel-fg:highlighttext;
   }
   body.light{
     --bg:#ffffff;--fg:#1e1e1e;--panel:#f3f3f3;--border:#d4d4d4;--muted:#6a6a6a;
@@ -20,7 +20,7 @@
     --preview:#999;--tree-line:#ccc;--closer:#6a6a6a;--drag:#d4d4d4;--drag-hl:#0e639c;
     --btn-bg:#0e639c;--btn-fg:#fff;--btn-hover:#1177bb;
     --bc-sep:#999;--bc-active:#333;--bc-hover:#000;--title:#333;
-    --ok:#1a8a1a;--err:#c00;--sel-bg:highlight;--sel-fg:highlighttext;
+    --arr:#8b3daa;--ok:#1a8a1a;--err:#c00;--sel-bg:highlight;--sel-fg:highlighttext;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:monospace;display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);overflow:hidden}
@@ -50,6 +50,7 @@
   .vb{color:var(--kw)}
   .vnull{color:var(--kw)}
   .preview{color:var(--preview);font-size:11px;margin-left:3px}
+  .arr-size{color:var(--arr);margin-left:3px}
   .children{margin-left:14px;border-left:1px solid var(--tree-line)}
   .closer{padding:1px 3px 1px 17px;font-size:13px;color:var(--closer);line-height:20px}
   #drag{width:4px;background:var(--drag);cursor:col-resize;flex-shrink:0;transition:background .1s}
@@ -302,8 +303,13 @@ function makeRow(keyName, val, path, isLast){
     const p = document.createElement('span');
     p.className = 'preview';
     const isArr = Array.isArray(val);
-    if(isExp)  p.textContent = isArr ? '[' : '{';
-    else       p.textContent = isArr ? `[ ${val.length} items ]` : `{ ${Object.keys(val).length} keys }`;
+    if(isArr){
+      p.className = 'arr-size';
+      p.textContent = `[${val.length}]`;
+    } else {
+      if(isExp) p.textContent = '{';
+      else      p.textContent = `{ ${Object.keys(val).length} keys }`;
+    }
     row.appendChild(p);
   }
 
