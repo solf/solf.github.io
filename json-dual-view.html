@@ -17,9 +17,7 @@
   #editor-wrap{position:relative;flex:1;overflow:hidden;display:flex}
   #line-nums{width:44px;padding:8px 4px 8px 0;text-align:right;color:#555;font-size:13px;line-height:20px;background:#1e1e1e;flex-shrink:0;overflow:hidden;user-select:none;border-right:1px solid #3c3c3c}
   #editor-inner{position:relative;flex:1;overflow:hidden}
-  #highlight-layer{position:absolute;inset:0;padding:8px;font-family:monospace;font-size:13px;line-height:20px;white-space:pre;overflow:visible;pointer-events:none;color:transparent;tab-size:2}
-  .hl{background:rgba(255,200,50,.18);color:transparent;display:inline}
-  #raw{position:absolute;inset:0;padding:8px;background:transparent;color:#d4d4d4;font-size:13px;line-height:20px;border:none;outline:none;resize:none;white-space:pre;overflow:auto;caret-color:#fff;font-family:monospace;tab-size:2;z-index:1}
+  #raw{position:absolute;inset:0;padding:8px;background:#1e1e1e;color:#d4d4d4;font-size:13px;line-height:20px;border:none;outline:none;resize:none;white-space:pre;overflow:auto;caret-color:#fff;font-family:monospace;tab-size:2}
   #tree-pane{background:#1e1e1e}
   #tree-scroll{flex:1;overflow:auto;padding:6px 4px}
   .n{user-select:none}
@@ -55,7 +53,6 @@
     <div id="editor-wrap">
       <div id="line-nums"></div>
       <div id="editor-inner">
-        <div id="highlight-layer"></div>
         <textarea id="raw" spellcheck="false" placeholder="Paste or type JSON here…"></textarea>
       </div>
     </div>
@@ -68,7 +65,6 @@
 </div>
 <script>
 const raw = document.getElementById('raw');
-const hlLayer = document.getElementById('highlight-layer');
 const lineNums = document.getElementById('line-nums');
 const treeContent = document.getElementById('tree-content');
 const statusEl = document.getElementById('status');
@@ -192,34 +188,24 @@ function pathAtLine(line){
   return best;
 }
 
-// ── Highlight raw lines ────────────────────────────────────────────────────
-function escHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-function highlightRaw(sl, el){
+// ── Select raw lines (native textarea selection) ─────────────────────────
+function selectRaw(sl, el){
   const lines = raw.value.split('\n');
-  const html = lines.map((ln,i)=>{
-    const e = escHtml(ln);
-    return (i>=sl && i<=el) ? '<span class="hl">'+e+'\n</span>' : escHtml(ln)+'\n';
-  }).join('');
-  hlLayer.innerHTML = html;
-  // scroll raw to show start line BEFORE syncing the layer transform
+  let startOff = 0;
+  for(let i = 0; i < sl; i++) startOff += lines[i].length + 1;
+  let endOff = startOff;
+  for(let i = sl; i <= el; i++) endOff += lines[i].length + (i < el ? 1 : 0);
+  raw.focus({preventScroll: true});
+  raw.setSelectionRange(startOff, endOff);
   const lineH = 20;
   const targetY = sl * lineH;
   const viewH = raw.clientHeight - 16;
   if(targetY < raw.scrollTop || targetY > raw.scrollTop + viewH - lineH){
     raw.scrollTop = Math.max(0, targetY - viewH/3);
   }
-  syncLayerScroll();  // sync AFTER scrollTop is updated so transform is correct
-}
-
-function clearHighlight(){ hlLayer.innerHTML = ''; }
-
-function syncLayerScroll(){
-  hlLayer.style.transform = `translateY(-${raw.scrollTop}px) translateX(-${raw.scrollLeft}px)`;
 }
 
 raw.addEventListener('scroll', ()=>{
-  syncLayerScroll();
   lineNums.scrollTop = raw.scrollTop;
 });
 
@@ -284,7 +270,7 @@ function makeRow(keyName, val, path, isLast){
     const liveRow = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`) || row;
     activateRow(liveRow);
     const info = sourceMap[path];
-    if(info) highlightRaw(info.sl, info.el);
+    if(info) selectRaw(info.sl, info.el);
   });
 
   return row;
@@ -340,7 +326,6 @@ function parseAndRender(text){
     sourceMap  = r.map;
     renderLineNums(fmt);
     renderTree(parsedData);
-    clearHighlight();
     statusEl.style.color='#4ec94e';
     statusEl.textContent = '✓ valid JSON';
   } catch(e){
@@ -366,8 +351,6 @@ function syncTreeFromCursor(){
   // find and activate the row
   const rowEl = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`);
   activateRow(rowEl);
-  const info = sourceMap[path];
-  if(info) highlightRaw(info.sl, info.el);
 }
 
 raw.addEventListener('click', syncTreeFromCursor);
@@ -399,7 +382,7 @@ raw.addEventListener('input', ()=>{
 
 // ── Toolbar buttons ────────────────────────────────────────────────────────
 function fmtBtn(){ if(parsedData!==undefined && parsedData!==null || raw.value.trim()) parseAndRender(raw.value); }
-function collapseAll(){ expandedPaths.clear(); expandedPaths.add('/'); renderTree(parsedData); clearHighlight(); }
+function collapseAll(){ expandedPaths.clear(); expandedPaths.add('/'); renderTree(parsedData); }
 function loadSample(){
   const sample = {
     "store": {
