@@ -347,7 +347,14 @@ function renderTree(){
 function activateRow(rowEl){
   if(activeRow) activeRow.classList.remove('active');
   activeRow = rowEl;
-  if(rowEl){ rowEl.classList.add('active'); rowEl.scrollIntoView({block:'nearest'}); }
+  if(rowEl){
+    rowEl.classList.add('active');
+    const scrollRect = document.getElementById('tree-scroll').getBoundingClientRect();
+    const rowRect = rowEl.getBoundingClientRect();
+    if(rowRect.top < scrollRect.top || rowRect.bottom > scrollRect.bottom){
+      rowEl.scrollIntoView({block:'center'});
+    }
+  }
   updateBreadcrumbs(rowEl ? rowEl.dataset.path : null);
 }
 
