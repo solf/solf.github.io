@@ -437,6 +437,20 @@ function loadSample(){
   try { updateView(fmt); } catch(e){ statusEl.textContent = '✗ '+e.message; }
 }
 
+// ── Settings (localStorage) ───────────────────────────────────────────────
+const SETTINGS_KEY = 'json-dual-view-settings';
+function loadSettings(){
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function saveSetting(key, value){
+  try {
+    const s = loadSettings();
+    s[key] = value;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch(e){}
+}
+
 // ── Drag to resize panes ───────────────────────────────────────────────────
 const dragEl = document.getElementById('drag');
 const rawPane = document.getElementById('raw-pane');
@@ -461,10 +475,19 @@ document.addEventListener('mouseup', ()=>{
   if(!dragging) return;
   dragging=false; dragEl.classList.remove('dragging');
   document.body.style.cursor=''; document.body.style.userSelect='';
+  saveSetting('paneWidth', rawPane.offsetWidth);
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────
-loadSample();
+(function init(){
+  const s = loadSettings();
+  if(s.paneWidth){
+    rawPane.style.flex = 'none';
+    rawPane.style.width = s.paneWidth + 'px';
+    treePane.style.flex = '1';
+  }
+  loadSample();
+})();
 </script>
 </body>
 </html>
