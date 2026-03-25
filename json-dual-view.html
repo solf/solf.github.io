@@ -13,7 +13,7 @@
   #main{display:flex;flex:1;overflow:hidden}
   .pane{display:flex;flex-direction:column;flex:1;overflow:hidden}
   #raw-pane{overflow:hidden}
-  .pane-label{padding:3px 8px;background:#252526;font-size:11px;color:#858585;border-bottom:1px solid #3c3c3c;flex-shrink:0;user-select:none}
+  .pane-label{padding:3px 8px;background:#252526;font-size:11px;color:#858585;border-bottom:1px solid #3c3c3c;flex-shrink:0;user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #editor-wrap{position:relative;flex:1;overflow:hidden;display:flex}
   #line-nums{width:44px;padding:8px 4px 8px 0;text-align:right;color:#555;font-size:13px;line-height:20px;background:#1e1e1e;flex-shrink:0;overflow:hidden;user-select:none;border-right:1px solid #3c3c3c}
   #editor-inner{position:relative;flex:1;overflow:hidden}
@@ -52,8 +52,8 @@
   <button onclick="fmtBtn()">Format</button>
   <button onclick="compactBtn()">Compact</button>
   <button onclick="collapseAll()">Collapse All</button>
-  <button onclick="swapPanes()">Swap Panes</button>
   <span id="status"></span>
+  <button onclick="swapPanes()" style="margin-left:auto">Swap Panes</button>
 </div>
 <div id="breadcrumbs">&nbsp;</div>
 <div id="main">
@@ -493,8 +493,21 @@ function applyPaneOrder(treeLeft){
 
 function swapPanes(){
   const main = document.getElementById('main');
-  const treeLeft = main.children[0].id !== 'tree-pane';
+  const oldLeft = main.children[0];
+  saveSetting(oldLeft.id + 'Width', oldLeft.offsetWidth);
+  const treeLeft = oldLeft.id !== 'tree-pane';
   applyPaneOrder(treeLeft);
+  const newLeft = main.children[0];
+  const newRight = main.children[2];
+  oldLeft.style.flex = ''; oldLeft.style.width = '';
+  newRight.style.flex = ''; newRight.style.width = '';
+  const s = loadSettings();
+  const w = s[newLeft.id + 'Width'];
+  if(w){
+    newLeft.style.flex = 'none';
+    newLeft.style.width = w + 'px';
+    newRight.style.flex = '1';
+  }
   saveSetting('treeLeft', treeLeft);
 }
 
@@ -559,18 +572,19 @@ document.addEventListener('mouseup', ()=>{
   if(!dragging) return;
   dragging=false; dragEl.classList.remove('dragging');
   document.body.style.cursor=''; document.body.style.userSelect='';
-  saveSetting('leftPaneWidth', dragLeftPane.offsetWidth);
+  saveSetting(dragLeftPane.id + 'Width', dragLeftPane.offsetWidth);
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────
 (function init(){
   const s = loadSettings();
   applyPaneOrder(s.treeLeft !== false);
-  const w = s.leftPaneWidth || s.paneWidth;
+  const main = document.getElementById('main');
+  const leftPane = main.children[0];
+  const w = s[leftPane.id + 'Width'];
   if(w){
-    const main = document.getElementById('main');
-    main.children[0].style.flex = 'none';
-    main.children[0].style.width = w + 'px';
+    leftPane.style.flex = 'none';
+    leftPane.style.width = w + 'px';
     main.children[2].style.flex = '1';
   }
   loadSample();
