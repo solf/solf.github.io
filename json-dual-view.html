@@ -12,7 +12,7 @@
   #status{font-size:11px;color:#858585;margin-left:8px}
   #main{display:flex;flex:1;overflow:hidden}
   .pane{display:flex;flex-direction:column;flex:1;overflow:hidden}
-  #raw-pane{border-right:2px solid #3c3c3c}
+  #raw-pane{overflow:hidden}
   .pane-label{padding:3px 8px;background:#252526;font-size:11px;color:#858585;border-bottom:1px solid #3c3c3c;flex-shrink:0;user-select:none}
   #editor-wrap{position:relative;flex:1;overflow:hidden;display:flex}
   #line-nums{width:44px;padding:8px 4px 8px 0;text-align:right;color:#555;font-size:13px;line-height:20px;background:#1e1e1e;flex-shrink:0;overflow:hidden;user-select:none;border-right:1px solid #3c3c3c}
@@ -52,6 +52,7 @@
   <button onclick="fmtBtn()">Format</button>
   <button onclick="compactBtn()">Compact</button>
   <button onclick="collapseAll()">Collapse All</button>
+  <button onclick="swapPanes()">Swap Panes</button>
   <span id="status"></span>
 </div>
 <div id="breadcrumbs">&nbsp;</div>
@@ -476,6 +477,27 @@ function collapseAll(){
   expandedPaths.add(parsedData.length === 1 ? '/0' : '/');
   renderTree();
 }
+function applyPaneOrder(treeLeft){
+  const main = document.getElementById('main');
+  const rawPane = document.getElementById('raw-pane');
+  const treePane = document.getElementById('tree-pane');
+  const drag = document.getElementById('drag');
+  if(treeLeft){
+    main.insertBefore(treePane, main.firstChild);
+    main.insertBefore(drag, rawPane);
+  } else {
+    main.insertBefore(rawPane, main.firstChild);
+    main.insertBefore(drag, treePane);
+  }
+}
+
+function swapPanes(){
+  const main = document.getElementById('main');
+  const treeLeft = main.children[0].id !== 'tree-pane';
+  applyPaneOrder(treeLeft);
+  saveSetting('treeLeft', treeLeft);
+}
+
 function loadSample(){
   const sample = {
     "store": {
@@ -514,11 +536,11 @@ function saveSetting(key, value){
 
 // ── Drag to resize panes ───────────────────────────────────────────────────
 const dragEl = document.getElementById('drag');
-const rawPane = document.getElementById('raw-pane');
-const treePane = document.getElementById('tree-pane');
-let dragging = false, startX, startW;
+let dragging = false, startX, startW, dragLeftPane;
 dragEl.addEventListener('mousedown', e=>{
-  dragging=true; startX=e.clientX; startW=rawPane.offsetWidth;
+  const main = document.getElementById('main');
+  dragLeftPane = main.children[0];
+  dragging=true; startX=e.clientX; startW=dragLeftPane.offsetWidth;
   dragEl.classList.add('dragging');
   document.body.style.cursor='col-resize';
   document.body.style.userSelect='none';
@@ -526,26 +548,30 @@ dragEl.addEventListener('mousedown', e=>{
 document.addEventListener('mousemove', e=>{
   if(!dragging) return;
   const main = document.getElementById('main');
+  const rightPane = main.children[2];
   const totalW = main.offsetWidth - 4;
   const newW = Math.min(Math.max(startW + e.clientX - startX, 200), totalW-200);
-  rawPane.style.flex='none';
-  rawPane.style.width=newW+'px';
-  treePane.style.flex='1';
+  dragLeftPane.style.flex='none';
+  dragLeftPane.style.width=newW+'px';
+  rightPane.style.flex='1';
 });
 document.addEventListener('mouseup', ()=>{
   if(!dragging) return;
   dragging=false; dragEl.classList.remove('dragging');
   document.body.style.cursor=''; document.body.style.userSelect='';
-  saveSetting('paneWidth', rawPane.offsetWidth);
+  saveSetting('leftPaneWidth', dragLeftPane.offsetWidth);
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────
 (function init(){
   const s = loadSettings();
-  if(s.paneWidth){
-    rawPane.style.flex = 'none';
-    rawPane.style.width = s.paneWidth + 'px';
-    treePane.style.flex = '1';
+  applyPaneOrder(s.treeLeft !== false);
+  const w = s.leftPaneWidth || s.paneWidth;
+  if(w){
+    const main = document.getElementById('main');
+    main.children[0].style.flex = 'none';
+    main.children[0].style.width = w + 'px';
+    main.children[2].style.flex = '1';
   }
   loadSample();
 })();
