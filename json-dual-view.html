@@ -44,6 +44,7 @@
   <span style="color:#ccc;font-size:12px;font-weight:bold">JSON Dual View</span>
   <button onclick="loadSample()">Sample</button>
   <button onclick="fmtBtn()">Format</button>
+  <button onclick="compactBtn()">Compact</button>
   <button onclick="collapseAll()">Collapse All</button>
   <span id="status"></span>
 </div>
@@ -69,9 +70,9 @@ const lineNums = document.getElementById('line-nums');
 const treeContent = document.getElementById('tree-content');
 const statusEl = document.getElementById('status');
 
-let parsedData = null;
+let parsedData = [];  // always an array of records
 let sourceMap = {};   // path -> {sl, el, sp, ep}  (line range 0-indexed + char offsets)
-let expandedPaths = new Set(['/']);
+let expandedPaths = new Set();
 let activeRow = null;
 let debounceTimer = null;
 
@@ -174,13 +175,21 @@ function parseWithPositions(text){
     return val;
   }
 
-  const data = parseVal('/');
-  return {data, map};
+  const records = [];
+  while(true){
+    skipWS();
+    if(pos >= text.length) break;
+    records.push(parseVal('/' + records.length));
+  }
+  if(records.length === 0) throw new Error('Empty input');
+  if(records.length > 1) map['/'] = {sl: 0, el: ln, sp: 0, ep: pos};
+  return {data: records, map};
 }
 
 // ── Path at cursor position (reverse lookup) ─────────────────────────────
 function pathAtPos(charPos){
-  let best='/', bestRange=Infinity;
+  let best = parsedData.length === 1 ? '/0' : '/';
+  let bestRange=Infinity;
   for(const [p,{sp,ep}] of Object.entries(sourceMap)){
     if(charPos >= sp && charPos < ep){
       const range = ep - sp;
@@ -275,7 +284,7 @@ function makeRow(keyName, val, path, isLast){
     if(isObj){
       if(expandedPaths.has(path)) expandedPaths.delete(path);
       else expandedPaths.add(path);
-      renderTree(parsedData);
+      renderTree();
     }
     // After renderTree the old 'row' element is detached; re-query by path
     const liveRow = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`) || row;
@@ -314,10 +323,14 @@ function renderNode(keyName, val, path, isLast){
   return node;
 }
 
-function renderTree(data){
+function renderTree(){
   treeContent.innerHTML = '';
-  if(!data && data !== null){ treeContent.innerHTML='<div class="err">No data</div>'; return; }
-  treeContent.appendChild(renderNode(null, data, '/', true));
+  if(!parsedData.length){ treeContent.innerHTML='<div class="err">No data</div>'; return; }
+  if(parsedData.length === 1){
+    treeContent.appendChild(renderNode(null, parsedData[0], '/0', true));
+  } else {
+    treeContent.appendChild(renderNode(null, parsedData, '/', true));
+  }
 }
 
 function activateRow(rowEl){
@@ -326,36 +339,30 @@ function activateRow(rowEl){
   if(rowEl){ rowEl.classList.add('active'); rowEl.scrollIntoView({block:'nearest'}); }
 }
 
-// ── Parse & full update (Format / Sample / load) ──────────────────────────
-function parseAndRender(text){
-  try {
-    // Format button / Sample: re-serialize to canonical form, then position-track it
-    const fmt = JSON.stringify(JSON.parse(text), null, 2);
-    raw.value = fmt;
-    const r = parseWithPositions(fmt);
-    parsedData = r.data;
-    sourceMap  = r.map;
-    renderLineNums(fmt);
-    renderTree(parsedData);
-    statusEl.style.color='#4ec94e';
-    statusEl.textContent = '✓ valid JSON';
-  } catch(e){
-    statusEl.style.color='#f44';
-    statusEl.textContent = '✗ '+e.message;
-    renderLineNums(raw.value);
-  }
+// ── Parse & update view ──────────────────────────────────────────────────
+function updateView(text){
+  const r = parseWithPositions(text);
+  parsedData = r.data;
+  sourceMap  = r.map;
+  renderLineNums(text);
+  if(!expandedPaths.size) expandedPaths.add(parsedData.length === 1 ? '/0' : '/');
+  renderTree();
+  statusEl.style.color='#4ec94e';
+  statusEl.textContent = parsedData.length > 1
+    ? `✓ NDJSON (${parsedData.length} records)`
+    : '✓ valid JSON';
 }
 
 // ── Sync: cursor in raw → tree ─────────────────────────────────────────────
 function syncTreeFromCursor(){
-  if(!parsedData) return;
+  if(!parsedData.length) return;
   const path = pathAtPos(raw.selectionStart);
   // expand ancestors
   const parts = path.split('/').filter(Boolean);
   let cur = '/';
   expandedPaths.add('/');
   for(const p of parts){ cur = cur==='/'? '/'+p : cur+'/'+p; expandedPaths.add(cur); }
-  renderTree(parsedData);
+  renderTree();
   // find and activate the row
   const rowEl = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`);
   activateRow(rowEl);
@@ -370,27 +377,44 @@ raw.addEventListener('input', ()=>{
   statusEl.textContent = '…';
   statusEl.style.color='#858585';
   debounceTimer = setTimeout(()=>{
-    const text = raw.value;
     try {
-      // Parse with position tracking directly from the user's text — no reformatting
-      const r = parseWithPositions(text);
-      parsedData = r.data;
-      sourceMap  = r.map;
-      renderLineNums(text);
-      renderTree(parsedData);
-      statusEl.style.color='#4ec94e';
-      statusEl.textContent = '✓ valid JSON';
+      updateView(raw.value);
     } catch(e){
       statusEl.style.color='#f44';
       statusEl.textContent = '✗ '+e.message;
-      renderLineNums(text);
+      renderLineNums(raw.value);
     }
   }, 400);
 });
 
 // ── Toolbar buttons ────────────────────────────────────────────────────────
-function fmtBtn(){ if(parsedData!==undefined && parsedData!==null || raw.value.trim()) parseAndRender(raw.value); }
-function collapseAll(){ expandedPaths.clear(); expandedPaths.add('/'); renderTree(parsedData); }
+function fmtBtn(){
+  try {
+    if(!parsedData.length && raw.value.trim()) updateView(raw.value);
+    if(!parsedData.length) return;
+    const fmt = parsedData.length === 1
+      ? JSON.stringify(parsedData[0], null, 2)
+      : parsedData.map(r => JSON.stringify(r, null, 2)).join('\n\n');
+    raw.value = fmt;
+    updateView(fmt);
+  } catch(e){ statusEl.style.color='#f44'; statusEl.textContent = '✗ '+e.message; }
+}
+function compactBtn(){
+  try {
+    if(!parsedData.length && raw.value.trim()) updateView(raw.value);
+    if(!parsedData.length) return;
+    const compact = parsedData.length === 1
+      ? JSON.stringify(parsedData[0])
+      : parsedData.map(r => JSON.stringify(r)).join('\n');
+    raw.value = compact;
+    updateView(compact);
+  } catch(e){ statusEl.style.color='#f44'; statusEl.textContent = '✗ '+e.message; }
+}
+function collapseAll(){
+  expandedPaths.clear();
+  expandedPaths.add(parsedData.length === 1 ? '/0' : '/');
+  renderTree();
+}
 function loadSample(){
   const sample = {
     "store": {
@@ -406,7 +430,11 @@ function loadSample(){
       "contact": null
     }
   };
-  parseAndRender(JSON.stringify(sample));
+  const fmt = JSON.stringify(sample, null, 2);
+  raw.value = fmt;
+  expandedPaths.clear();
+  expandedPaths.add('/0');
+  try { updateView(fmt); } catch(e){ statusEl.textContent = '✗ '+e.message; }
 }
 
 // ── Drag to resize panes ───────────────────────────────────────────────────
