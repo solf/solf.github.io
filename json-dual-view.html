@@ -17,7 +17,7 @@
   #editor-wrap{position:relative;flex:1;overflow:hidden;display:flex}
   #line-nums{width:44px;padding:8px 4px 8px 0;text-align:right;color:#555;font-size:13px;line-height:20px;background:#1e1e1e;flex-shrink:0;overflow:hidden;user-select:none;border-right:1px solid #3c3c3c}
   #editor-inner{position:relative;flex:1;overflow:hidden}
-  #highlight-layer{position:absolute;inset:0;padding:8px;font-family:monospace;font-size:13px;line-height:20px;white-space:pre;overflow:hidden;pointer-events:none;color:transparent;tab-size:2}
+  #highlight-layer{position:absolute;inset:0;padding:8px;font-family:monospace;font-size:13px;line-height:20px;white-space:pre;overflow:visible;pointer-events:none;color:transparent;tab-size:2}
   .hl{background:rgba(255,200,50,.18);color:transparent;display:inline}
   #raw{position:absolute;inset:0;padding:8px;background:transparent;color:#d4d4d4;font-size:13px;line-height:20px;border:none;outline:none;resize:none;white-space:pre;overflow:auto;caret-color:#fff;font-family:monospace;tab-size:2;z-index:1}
   #tree-pane{background:#1e1e1e}
@@ -215,8 +215,7 @@ function highlightRaw(sl, el){
 function clearHighlight(){ hlLayer.innerHTML = ''; }
 
 function syncLayerScroll(){
-  hlLayer.scrollTop = raw.scrollTop;
-  hlLayer.scrollLeft = raw.scrollLeft;
+  hlLayer.style.transform = `translateY(-${raw.scrollTop}px) translateX(-${raw.scrollLeft}px)`;
 }
 
 raw.addEventListener('scroll', ()=>{
