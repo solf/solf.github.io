@@ -1,2 +1,4 @@
-/.project
-/.settings/
+# Exclude basic Eclipse files.
+**/.project
+**/.classpath
+**/.settings/

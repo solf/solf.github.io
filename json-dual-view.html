@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>JSON Dual View</title>
+<style>
+  :root{
+    --bg:#1e1e1e;--fg:#d4d4d4;--panel:#252526;--border:#3c3c3c;--muted:#858585;
+    --line-num:#555;--caret:#fff;--row-hover:#2a2d2e;--row-active:#094771;
+    --tog:#777;--key:#9cdcfe;--str:#ce9178;--num:#b5cea8;--kw:#569cd6;
+    --preview:#666;--tree-line:#333;--closer:#888;--drag:#3c3c3c;--drag-hl:#0e639c;
+    --btn-bg:#0e639c;--btn-fg:#fff;--btn-hover:#1177bb;
+    --bc-sep:#555;--bc-active:#ccc;--bc-hover:#d4d4d4;--title:#ccc;
+    --arr:#d7ba7d;--ok:#4ec94e;--err:#f44;--sel-bg:highlight;--sel-fg:highlighttext;
+  }
+  body.light{
+    --bg:#ffffff;--fg:#1e1e1e;--panel:#f3f3f3;--border:#d4d4d4;--muted:#6a6a6a;
+    --line-num:#999;--caret:#000;--row-hover:#e8e8e8;--row-active:#c2dff7;
+    --tog:#888;--key:#0451a5;--str:#a31515;--num:#098658;--kw:#0000ff;
+    --preview:#999;--tree-line:#ccc;--closer:#6a6a6a;--drag:#d4d4d4;--drag-hl:#0e639c;
+    --btn-bg:#0e639c;--btn-fg:#fff;--btn-hover:#1177bb;
+    --bc-sep:#999;--bc-active:#333;--bc-hover:#000;--title:#333;
+    --arr:#8b3daa;--ok:#1a8a1a;--err:#c00;--sel-bg:highlight;--sel-fg:highlighttext;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:monospace;display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);overflow:hidden}
+  #toolbar{padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-shrink:0}
+  #toolbar button{padding:3px 10px;background:var(--btn-bg);color:var(--btn-fg);border:none;cursor:pointer;border-radius:2px;font-size:12px}
+  #toolbar button:hover{background:var(--btn-hover)}
+  #status{font-size:11px;color:var(--muted);margin-left:8px}
+  #main{display:flex;flex:1;overflow:hidden}
+  .pane{display:flex;flex-direction:column;flex:1;overflow:hidden}
+  #raw-pane{overflow:hidden}
+  .pane-label{padding:3px 8px;background:var(--panel);font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);flex-shrink:0;user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #editor-wrap{position:relative;flex:1;overflow:hidden;display:flex}
+  #line-nums{width:44px;padding:8px 4px 8px 0;text-align:right;color:var(--line-num);font-size:13px;line-height:20px;background:var(--bg);flex-shrink:0;overflow:hidden;user-select:none;border-right:1px solid var(--border);white-space:pre}
+  #editor-inner{position:relative;flex:1;overflow:hidden}
+  #raw{position:absolute;inset:0;padding:8px;background:var(--bg);color:var(--fg);font-size:13px;line-height:20px;border:none;outline:none;resize:none;white-space:pre;overflow:auto;caret-color:var(--caret);font-family:monospace;tab-size:2}
+  #tree-pane{background:var(--bg)}
+  #tree-scroll{flex:1;overflow:auto;padding:6px 4px}
+  .n{user-select:none}
+  .row{display:flex;align-items:baseline;padding:1px 3px;cursor:pointer;border-radius:3px;white-space:nowrap;font-size:13px;line-height:20px}
+  .row:hover{background:var(--row-hover)}
+  .row.active{background:var(--row-active)}
+  .tog{width:18px;flex-shrink:0;font-size:18px;color:var(--tog);text-align:center;line-height:20px}
+  .k{color:var(--key)}
+  .sep{color:var(--fg);margin-right:4px}
+  .vs{color:var(--str)}
+  .vn{color:var(--num)}
+  .vb{color:var(--kw)}
+  .vnull{color:var(--kw)}
+  .preview{color:var(--preview);font-size:11px;margin-left:3px}
+  .arr-size{color:var(--arr);margin-left:3px}
+  .children{margin-left:14px;border-left:1px solid var(--tree-line)}
+  .closer{padding:1px 3px 1px 17px;font-size:13px;color:var(--closer);line-height:20px}
+  #drag{width:4px;background:var(--drag);cursor:col-resize;flex-shrink:0;transition:background .1s}
+  #drag:hover,#drag.dragging{background:var(--drag-hl)}
+  .err{color:var(--err);font-size:12px;padding:6px 8px}
+  #breadcrumbs{padding:3px 10px;background:var(--bg);border-bottom:1px solid var(--border);font-size:12px;line-height:18px;flex-shrink:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}
+  #breadcrumbs span{cursor:pointer;color:var(--muted)}
+  #breadcrumbs span:hover{color:var(--bc-hover);text-decoration:underline}
+  #breadcrumbs .bc-sep{cursor:default;color:var(--bc-sep);margin:0 2px}
+  #breadcrumbs .bc-sep:hover{color:var(--bc-sep);text-decoration:none}
+  #breadcrumbs .bc-active{color:var(--bc-active)}
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <span style="color:var(--title);font-size:12px;font-weight:bold">JSON Dual View</span>
+  <button onclick="loadSample()" style="background:var(--muted)">Sample</button>
+  <button onclick="collapseAll()">Collapse All</button>
+  <button onclick="compactBtn()">Compact</button>
+  <button onclick="fmtBtn()">Format</button>
+  <span id="status"></span>
+  <button onclick="swapPanes()" style="margin-left:auto">Swap Panes</button>
+  <button onclick="toggleTheme()" id="theme-btn">Dark</button>
+</div>
+<div id="breadcrumbs">&nbsp;</div>
+<div id="main">
+  <div class="pane" id="raw-pane">
+    <div class="pane-label">RAW ✏️  (edit here — tree updates on valid JSON)</div>
+    <div id="editor-wrap">
+      <div id="line-nums"></div>
+      <div id="editor-inner">
+        <textarea id="raw" spellcheck="false" placeholder="Paste or type JSON here…"></textarea>
+      </div>
+    </div>
+  </div>
+  <div id="drag"></div>
+  <div class="pane" id="tree-pane">
+    <div class="pane-label">TREE 🌲  (click node — raw scrolls to it)</div>
+    <div id="tree-scroll"><div id="tree-content"></div></div>
+  </div>
+</div>
+<script>
+const raw = document.getElementById('raw');
+const lineNums = document.getElementById('line-nums');
+const treeContent = document.getElementById('tree-content');
+const statusEl = document.getElementById('status');
+const breadcrumbsEl = document.getElementById('breadcrumbs');
+
+let parsedData = [];  // always an array of records
+let sourceMap = {};   // path -> {sl, el, sp, ep}  (line range 0-indexed + char offsets)
+let expandedPaths = new Set();
+let activeRow = null;
+let debounceTimer = null;
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+function escPath(k){ return String(k).replace(/~/g,'~0').replace(/\//g,'~1'); }
+
+// ── Position-tracking parser ──────────────────────────────────────────────────
+// Walks the raw text directly so sourceMap line numbers always match raw.value,
+// regardless of indentation style, blank lines, or inline formatting.
+function parseWithPositions(text){
+  let pos = 0, ln = 0;
+  const map = {};
+
+  function skipWS(){
+    while(pos < text.length){
+      const c = text[pos];
+      if(c === '\n'){ ln++; pos++; }
+      else if(c === ' ' || c === '\t' || c === '\r'){ pos++; }
+      else break;
+    }
+  }
+
+  function parseStr(){
+    let s = '';
+    pos++; // skip opening "
+    while(pos < text.length){
+      const c = text[pos];
+      if(c === '"'){ pos++; return s; }
+      if(c === '\\'){
+        pos++;
+        const e = text[pos++];
+        if(e==='n') s+='\n'; else if(e==='t') s+='\t'; else if(e==='r') s+='\r';
+        else if(e==='"') s+='"'; else if(e==='\\') s+='\\'; else if(e==='/') s+='/';
+        else if(e==='b') s+='\b'; else if(e==='f') s+='\f';
+        else if(e==='u'){ s+=String.fromCharCode(parseInt(text.slice(pos,pos+4),16)); pos+=4; }
+        else s+=e;
+      } else {
+        if(c==='\n') ln++;
+        s+=c; pos++;
+      }
+    }
+    throw new Error('Unterminated string');
+  }
+
+  function parseVal(path, sp0){
+    skipWS();
+    const sl = ln;
+    const sp = sp0 !== undefined ? sp0 : pos;
+    let val;
+    const c = text[pos];
+    if(c === '"'){
+      val = parseStr();
+    } else if(c === '{'){
+      pos++;
+      val = {};
+      skipWS();
+      if(text[pos] !== '}'){
+        while(true){
+          skipWS();
+          const kp = pos;
+          const key = parseStr();
+          skipWS();
+          pos++; // skip :
+          const cp = path==='/' ? '/'+escPath(key) : path+'/'+escPath(key);
+          val[key] = parseVal(cp, kp);
+          skipWS();
+          if(text[pos] === '}') break;
+          pos++; // skip ,
+        }
+      }
+      pos++; // skip }
+    } else if(c === '['){
+      pos++;
+      val = [];
+      skipWS();
+      if(text[pos] !== ']'){
+        let i = 0;
+        while(true){
+          const cp = path==='/' ? '/'+i : path+'/'+i;
+          val.push(parseVal(cp));
+          i++;
+          skipWS();
+          if(text[pos] === ']') break;
+          pos++; // skip ,
+        }
+      }
+      pos++; // skip ]
+    } else if(text.startsWith('null',pos)){
+      val=null; pos+=4;
+    } else if(text.startsWith('true',pos)){
+      val=true; pos+=4;
+    } else if(text.startsWith('false',pos)){
+      val=false; pos+=5;
+    } else {
+      const m = text.slice(pos).match(/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/);
+      if(!m) throw new Error('Unexpected token at pos '+pos);
+      val = Number(m[0]); pos += m[0].length;
+    }
+    map[path] = {sl, el: ln, sp, ep: pos};
+    return val;
+  }
+
+  const records = [];
+  while(true){
+    skipWS();
+    if(pos >= text.length) break;
+    records.push(parseVal('/' + records.length));
+  }
+  if(records.length === 0) throw new Error('Empty input');
+  if(records.length > 1) map['/'] = {sl: 0, el: ln, sp: 0, ep: pos};
+  return {data: records, map};
+}
+
+// ── Path at cursor position (reverse lookup) ─────────────────────────────
+function pathAtPos(charPos){
+  let best = parsedData.length === 1 ? '/0' : '/';
+  let bestRange=Infinity;
+  for(const [p,{sp,ep}] of Object.entries(sourceMap)){
+    if(charPos >= sp && charPos < ep){
+      const range = ep - sp;
+      if(range < bestRange){ bestRange = range; best = p; }
+    }
+  }
+  return best;
+}
+
+// ── Select raw range (native textarea selection) ─────────────────────────
+function selectRaw(info){
+  raw.focus({preventScroll: true});
+  raw.setSelectionRange(info.sp, info.ep);
+
+  const cs = getComputedStyle(raw);
+  const lineH = parseFloat(cs.lineHeight) || 20;
+  const pad = parseFloat(cs.paddingTop) || 8;
+
+  // vertical scroll
+  const targetY = info.sl * lineH;
+  const viewH = raw.clientHeight - pad * 2;
+  if(targetY < raw.scrollTop || targetY > raw.scrollTop + viewH - lineH){
+    raw.scrollTop = Math.max(0, targetY - viewH / 3);
+  }
+
+  // horizontal scroll -- prefer leftmost, add 1/3-viewport padding when needed
+  const before = raw.value.substring(0, info.sp);
+  const col = info.sp - before.lastIndexOf('\n') - 1;
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.font = cs.font;
+  const targetX = col * ctx.measureText('M').width;
+  const viewW = raw.clientWidth - pad * 2;
+  raw.scrollLeft = targetX <= viewW ? 0 : Math.max(0, targetX - viewW / 3);
+}
+
+raw.addEventListener('scroll', ()=>{
+  lineNums.scrollTop = raw.scrollTop;
+});
+
+// ── Render line numbers ────────────────────────────────────────────────────
+function renderLineNums(text){
+  const count = (text.match(/\n/g)||[]).length + 1;
+  let html='';
+  for(let i=1;i<=count;i++) html += i+'\n';
+  lineNums.textContent = html;
+}
+
+// ── Tree rendering ─────────────────────────────────────────────────────────
+function makeRow(keyName, val, path, isLast){
+  const isObj = val !== null && typeof val === 'object';
+  const isExp = expandedPaths.has(path);
+
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.dataset.path = path;
+
+  // toggle
+  const tog = document.createElement('span');
+  tog.className = 'tog';
+  if(isObj) tog.textContent = isExp ? '▾' : '▸';
+  row.appendChild(tog);
+
+  // key
+  if(keyName !== null){
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = JSON.stringify(String(keyName));
+    row.appendChild(k);
+    const sep = document.createElement('span');
+    sep.className = 'sep';
+    sep.textContent = ': ';
+    row.appendChild(sep);
+  }
+
+  // value / preview
+  if(!isObj){
+    const v = document.createElement('span');
+    v.className = val===null ? 'vnull' : typeof val==='string' ? 'vs' : typeof val==='number' ? 'vn' : 'vb';
+    v.textContent = JSON.stringify(val);
+    row.appendChild(v);
+  } else {
+    const p = document.createElement('span');
+    p.className = 'preview';
+    const isArr = Array.isArray(val);
+    if(isArr){
+      p.className = 'arr-size';
+      p.textContent = `[${val.length}]`;
+    } else {
+      if(isExp) p.textContent = '{';
+      else      p.textContent = `{ ${Object.keys(val).length} keys }`;
+    }
+    row.appendChild(p);
+  }
+
+  row.addEventListener('click', e=>{
+    e.stopPropagation();
+    if(isObj){
+      if(expandedPaths.has(path)) expandedPaths.delete(path);
+      else expandedPaths.add(path);
+      renderTree();
+    }
+    // After renderTree the old 'row' element is detached; re-query by path
+    const liveRow = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`) || row;
+    activateRow(liveRow);
+    const info = sourceMap[path];
+    if(info) selectRaw(info);
+  });
+
+  return row;
+}
+
+function renderNode(keyName, val, path, isLast){
+  const isObj = val !== null && typeof val === 'object';
+  const isExp = expandedPaths.has(path);
+  const node = document.createElement('div');
+  node.className = 'n';
+
+  const row = makeRow(keyName, val, path, isLast);
+  node.appendChild(row);
+
+  if(isObj && isExp){
+    const ch = document.createElement('div');
+    ch.className = 'children';
+    if(Array.isArray(val)){
+      val.forEach((item,i)=> ch.appendChild(renderNode(i, item, (path==='/'?'':path)+'/'+i, i===val.length-1)));
+    } else {
+      const keys = Object.keys(val);
+      keys.forEach((k,i)=> ch.appendChild(renderNode(k, val[k], (path==='/'?'':path)+'/'+escPath(k), i===keys.length-1)));
+    }
+    node.appendChild(ch);
+    const cl = document.createElement('div');
+    cl.className = 'closer';
+    cl.textContent = (Array.isArray(val)?']':'}') + (isLast?'':',');
+    node.appendChild(cl);
+  }
+  return node;
+}
+
+function renderTree(){
+  const treeScroll = document.getElementById('tree-scroll');
+  const savedTop = treeScroll.scrollTop;
+  treeContent.innerHTML = '';
+  if(!parsedData.length){ treeContent.innerHTML='<div class="err">No data</div>'; return; }
+  if(parsedData.length === 1){
+    treeContent.appendChild(renderNode(null, parsedData[0], '/0', true));
+  } else {
+    treeContent.appendChild(renderNode(null, parsedData, '/', true));
+  }
+  treeScroll.scrollTop = savedTop;
+}
+
+function activateRow(rowEl){
+  if(activeRow) activeRow.classList.remove('active');
+  activeRow = rowEl;
+  if(rowEl){
+    rowEl.classList.add('active');
+    const scrollRect = document.getElementById('tree-scroll').getBoundingClientRect();
+    const rowRect = rowEl.getBoundingClientRect();
+    if(rowRect.top < scrollRect.top || rowRect.bottom > scrollRect.bottom){
+      rowEl.scrollIntoView({block:'center'});
+    }
+  }
+  updateBreadcrumbs(rowEl ? rowEl.dataset.path : null);
+}
+
+function unescPath(s){ return s.replace(/~1/g,'/').replace(/~0/g,'~'); }
+
+function updateBreadcrumbs(path){
+  breadcrumbsEl.innerHTML = '';
+  if(!path){ breadcrumbsEl.textContent = '\u00A0'; return; }
+  const parts = path.split('/').filter(Boolean);
+  const segments = [];
+  let cur = '';
+  for(const p of parts){
+    cur += '/' + p;
+    segments.push({path: cur, label: unescPath(p)});
+  }
+  segments.forEach((seg, i) => {
+    if(i > 0){
+      const sep = document.createElement('span');
+      sep.className = 'bc-sep';
+      sep.textContent = ' > ';
+      breadcrumbsEl.appendChild(sep);
+    }
+    const span = document.createElement('span');
+    span.textContent = seg.label;
+    if(i === segments.length - 1) span.classList.add('bc-active');
+    span.addEventListener('click', ()=>{
+      const info = sourceMap[seg.path];
+      if(!info) return;
+      const anc = seg.path.split('/').filter(Boolean);
+      let c = '/';
+      expandedPaths.add('/');
+      for(const a of anc){ c = c==='/'? '/'+a : c+'/'+a; expandedPaths.add(c); }
+      renderTree();
+      const row = treeContent.querySelector(`.row[data-path="${CSS.escape(seg.path)}"]`);
+      activateRow(row);
+      selectRaw(info);
+    });
+    breadcrumbsEl.appendChild(span);
+  });
+}
+
+// ── Parse & update view ──────────────────────────────────────────────────
+function updateView(text){
+  const r = parseWithPositions(text);
+  parsedData = r.data;
+  sourceMap  = r.map;
+  renderLineNums(text);
+  if(!expandedPaths.size) expandedPaths.add(parsedData.length === 1 ? '/0' : '/');
+  renderTree();
+  statusEl.style.color='var(--ok)';
+  statusEl.textContent = parsedData.length > 1
+    ? `✓ NDJSON (${parsedData.length} records)`
+    : '✓ valid JSON';
+}
+
+// ── Sync: cursor in raw → tree ─────────────────────────────────────────────
+function syncTreeFromCursor(){
+  if(!parsedData.length) return;
+  const path = pathAtPos(raw.selectionStart);
+  // expand ancestors
+  const parts = path.split('/').filter(Boolean);
+  let cur = '/';
+  expandedPaths.add('/');
+  for(const p of parts){ cur = cur==='/'? '/'+p : cur+'/'+p; expandedPaths.add(cur); }
+  renderTree();
+  // find and activate the row
+  const rowEl = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`);
+  activateRow(rowEl);
+}
+
+raw.addEventListener('click', syncTreeFromCursor);
+raw.addEventListener('keyup', e=>{ if(!['Shift','Control','Alt','Meta'].includes(e.key)) syncTreeFromCursor(); });
+
+// ── Raw editing (debounced) ────────────────────────────────────────────────
+raw.addEventListener('input', ()=>{
+  clearTimeout(debounceTimer);
+  statusEl.textContent = '…';
+  statusEl.style.color='var(--muted)';
+  debounceTimer = setTimeout(()=>{
+    try {
+      updateView(raw.value);
+    } catch(e){
+      statusEl.style.color='var(--err)';
+      statusEl.textContent = '✗ '+e.message;
+      renderLineNums(raw.value);
+    }
+  }, 400);
+});
+
+// ── Toolbar buttons ────────────────────────────────────────────────────────
+function fmtBtn(){
+  try {
+    if(!parsedData.length && raw.value.trim()) updateView(raw.value);
+    if(!parsedData.length) return;
+    const fmt = parsedData.length === 1
+      ? JSON.stringify(parsedData[0], null, 2)
+      : parsedData.map(r => JSON.stringify(r, null, 2)).join('\n\n');
+    raw.value = fmt;
+    raw.scrollLeft = 0;
+    raw.scrollTop = 0;
+    updateView(fmt);
+  } catch(e){ statusEl.style.color='var(--err)'; statusEl.textContent = '✗ '+e.message; }
+}
+function compactBtn(){
+  try {
+    if(!parsedData.length && raw.value.trim()) updateView(raw.value);
+    if(!parsedData.length) return;
+    const compact = parsedData.length === 1
+      ? JSON.stringify(parsedData[0])
+      : parsedData.map(r => JSON.stringify(r)).join('\n');
+    raw.value = compact;
+    raw.scrollLeft = 0;
+    raw.scrollTop = 0;
+    updateView(compact);
+  } catch(e){ statusEl.style.color='var(--err)'; statusEl.textContent = '✗ '+e.message; }
+}
+function collapseAll(){
+  expandedPaths.clear();
+  expandedPaths.add(parsedData.length === 1 ? '/0' : '/');
+  renderTree();
+}
+function applyPaneOrder(treeLeft){
+  const main = document.getElementById('main');
+  const rawPane = document.getElementById('raw-pane');
+  const treePane = document.getElementById('tree-pane');
+  const drag = document.getElementById('drag');
+  if(treeLeft){
+    main.insertBefore(treePane, main.firstChild);
+    main.insertBefore(drag, rawPane);
+  } else {
+    main.insertBefore(rawPane, main.firstChild);
+    main.insertBefore(drag, treePane);
+  }
+}
+
+function swapPanes(){
+  const main = document.getElementById('main');
+  const oldLeft = main.children[0];
+  saveSetting(oldLeft.id + 'Width', oldLeft.offsetWidth);
+  const treeLeft = oldLeft.id !== 'tree-pane';
+  applyPaneOrder(treeLeft);
+  const newLeft = main.children[0];
+  const newRight = main.children[2];
+  oldLeft.style.flex = ''; oldLeft.style.width = '';
+  newRight.style.flex = ''; newRight.style.width = '';
+  const s = loadSettings();
+  const w = s[newLeft.id + 'Width'];
+  if(w){
+    newLeft.style.flex = 'none';
+    newLeft.style.width = w + 'px';
+    newRight.style.flex = '1';
+  }
+  saveSetting('treeLeft', treeLeft);
+}
+
+function applyTheme(dark){
+  document.body.classList.toggle('light', !dark);
+  document.getElementById('theme-btn').textContent = dark ? 'Light' : 'Dark';
+}
+function toggleTheme(){
+  const dark = document.body.classList.contains('light');
+  applyTheme(dark);
+  saveSetting('dark', dark);
+}
+
+function loadSample(){
+  const sample = {
+    "store": {
+      "name": "Example Store",
+      "open": true,
+      "rating": 4.7,
+      "address": { "street": "123 Main St", "city": "Toronto", "zip": "M5V 1A1" },
+      "inventory": [
+        { "id": 1, "name": "Widget Alpha", "price": 9.99, "tags": ["sale","new"] },
+        { "id": 2, "name": "Widget Beta",  "price": 19.99, "tags": ["popular"] },
+        { "id": 3, "name": "Gadget Gamma", "price": 49.99, "tags": [], "specs": { "weight": "120g", "color": "black" } }
+      ],
+      "contact": null
+    }
+  };
+  const fmt = JSON.stringify(sample, null, 2);
+  raw.value = fmt;
+  expandedPaths.clear();
+  expandedPaths.add('/0');
+  try { updateView(fmt); } catch(e){ statusEl.textContent = '✗ '+e.message; }
+}
+
+// ── Settings (localStorage) ───────────────────────────────────────────────
+const SETTINGS_KEY = 'json-dual-view-settings';
+function loadSettings(){
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function saveSetting(key, value){
+  try {
+    const s = loadSettings();
+    s[key] = value;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch(e){}
+}
+
+// ── Drag to resize panes ───────────────────────────────────────────────────
+const dragEl = document.getElementById('drag');
+let dragging = false, startX, startW, dragLeftPane;
+dragEl.addEventListener('mousedown', e=>{
+  const main = document.getElementById('main');
+  dragLeftPane = main.children[0];
+  dragging=true; startX=e.clientX; startW=dragLeftPane.offsetWidth;
+  dragEl.classList.add('dragging');
+  document.body.style.cursor='col-resize';
+  document.body.style.userSelect='none';
+});
+document.addEventListener('mousemove', e=>{
+  if(!dragging) return;
+  const main = document.getElementById('main');
+  const rightPane = main.children[2];
+  const totalW = main.offsetWidth - 4;
+  const newW = Math.min(Math.max(startW + e.clientX - startX, 200), totalW-200);
+  dragLeftPane.style.flex='none';
+  dragLeftPane.style.width=newW+'px';
+  rightPane.style.flex='1';
+});
+document.addEventListener('mouseup', ()=>{
+  if(!dragging) return;
+  dragging=false; dragEl.classList.remove('dragging');
+  document.body.style.cursor=''; document.body.style.userSelect='';
+  saveSetting(dragLeftPane.id + 'Width', dragLeftPane.offsetWidth);
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────
+(function init(){
+  const s = loadSettings();
+  applyTheme(s.dark === true);
+  applyPaneOrder(s.treeLeft !== false);
+  const main = document.getElementById('main');
+  const leftPane = main.children[0];
+  const w = s[leftPane.id + 'Width'];
+  if(w){
+    leftPane.style.flex = 'none';
+    leftPane.style.width = w + 'px';
+    main.children[2].style.flex = '1';
+  }
+  loadSample();
+})();
+</script>
+</body>
+</html>
