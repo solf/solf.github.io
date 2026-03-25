@@ -70,7 +70,7 @@ const treeContent = document.getElementById('tree-content');
 const statusEl = document.getElementById('status');
 
 let parsedData = null;
-let sourceMap = {};   // path -> {sl, el}  (start/end line, 0-indexed)
+let sourceMap = {};   // path -> {sl, el, sp, ep}  (line range 0-indexed + char offsets)
 let expandedPaths = new Set(['/']);
 let activeRow = null;
 let debounceTimer = null;
@@ -116,9 +116,10 @@ function parseWithPositions(text){
     throw new Error('Unterminated string');
   }
 
-  function parseVal(path){
+  function parseVal(path, sp0){
     skipWS();
     const sl = ln;
+    const sp = sp0 !== undefined ? sp0 : pos;
     let val;
     const c = text[pos];
     if(c === '"'){
@@ -130,11 +131,12 @@ function parseWithPositions(text){
       if(text[pos] !== '}'){
         while(true){
           skipWS();
+          const kp = pos;
           const key = parseStr();
           skipWS();
           pos++; // skip :
           const cp = path==='/' ? '/'+escPath(key) : path+'/'+escPath(key);
-          val[key] = parseVal(cp);
+          val[key] = parseVal(cp, kp);
           skipWS();
           if(text[pos] === '}') break;
           pos++; // skip ,
@@ -168,7 +170,7 @@ function parseWithPositions(text){
       if(!m) throw new Error('Unexpected token at pos '+pos);
       val = Number(m[0]); pos += m[0].length;
     }
-    map[path] = {sl, el: ln};
+    map[path] = {sl, el: ln, sp, ep: pos};
     return val;
   }
 
@@ -176,29 +178,24 @@ function parseWithPositions(text){
   return {data, map};
 }
 
-// ── Path at line (reverse lookup) ──────────────────────────────────────────
-function pathAtLine(line){
+// ── Path at cursor position (reverse lookup) ─────────────────────────────
+function pathAtPos(charPos){
   let best='/', bestRange=Infinity;
-  for(const [p,{sl,el}] of Object.entries(sourceMap)){
-    if(line>=sl && line<=el){
-      const range=el-sl;
-      if(range<bestRange){ bestRange=range; best=p; }
+  for(const [p,{sp,ep}] of Object.entries(sourceMap)){
+    if(charPos >= sp && charPos < ep){
+      const range = ep - sp;
+      if(range < bestRange){ bestRange = range; best = p; }
     }
   }
   return best;
 }
 
-// ── Select raw lines (native textarea selection) ─────────────────────────
-function selectRaw(sl, el){
-  const lines = raw.value.split('\n');
-  let startOff = 0;
-  for(let i = 0; i < sl; i++) startOff += lines[i].length + 1;
-  let endOff = startOff;
-  for(let i = sl; i <= el; i++) endOff += lines[i].length + (i < el ? 1 : 0);
+// ── Select raw range (native textarea selection) ─────────────────────────
+function selectRaw(info){
   raw.focus({preventScroll: true});
-  raw.setSelectionRange(startOff, endOff);
+  raw.setSelectionRange(info.sp, info.ep);
   const lineH = 20;
-  const targetY = sl * lineH;
+  const targetY = info.sl * lineH;
   const viewH = raw.clientHeight - 16;
   if(targetY < raw.scrollTop || targetY > raw.scrollTop + viewH - lineH){
     raw.scrollTop = Math.max(0, targetY - viewH/3);
@@ -270,7 +267,7 @@ function makeRow(keyName, val, path, isLast){
     const liveRow = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`) || row;
     activateRow(liveRow);
     const info = sourceMap[path];
-    if(info) selectRaw(info.sl, info.el);
+    if(info) selectRaw(info);
   });
 
   return row;
@@ -338,10 +335,7 @@ function parseAndRender(text){
 // ── Sync: cursor in raw → tree ─────────────────────────────────────────────
 function syncTreeFromCursor(){
   if(!parsedData) return;
-  const pos = raw.selectionStart;
-  const before = raw.value.substring(0,pos);
-  const line = (before.match(/\n/g)||[]).length;
-  const path = pathAtLine(line);
+  const path = pathAtPos(raw.selectionStart);
   // expand ancestors
   const parts = path.split('/').filter(Boolean);
   let cur = '/';
