@@ -4,56 +4,75 @@
 <meta charset="UTF-8">
 <title>JSON Dual View</title>
 <style>
+  :root{
+    --bg:#1e1e1e;--fg:#d4d4d4;--panel:#252526;--border:#3c3c3c;--muted:#858585;
+    --line-num:#555;--caret:#fff;--row-hover:#2a2d2e;--row-active:#094771;
+    --tog:#777;--key:#9cdcfe;--str:#ce9178;--num:#b5cea8;--kw:#569cd6;
+    --preview:#666;--tree-line:#333;--closer:#888;--drag:#3c3c3c;--drag-hl:#0e639c;
+    --btn-bg:#0e639c;--btn-fg:#fff;--btn-hover:#1177bb;
+    --bc-sep:#555;--bc-active:#ccc;--bc-hover:#d4d4d4;--title:#ccc;
+    --ok:#4ec94e;--err:#f44;--sel-bg:highlight;--sel-fg:highlighttext;
+  }
+  body.light{
+    --bg:#ffffff;--fg:#1e1e1e;--panel:#f3f3f3;--border:#d4d4d4;--muted:#6a6a6a;
+    --line-num:#999;--caret:#000;--row-hover:#e8e8e8;--row-active:#c2dff7;
+    --tog:#888;--key:#0451a5;--str:#a31515;--num:#098658;--kw:#0000ff;
+    --preview:#999;--tree-line:#ccc;--closer:#6a6a6a;--drag:#d4d4d4;--drag-hl:#0e639c;
+    --btn-bg:#0e639c;--btn-fg:#fff;--btn-hover:#1177bb;
+    --bc-sep:#999;--bc-active:#333;--bc-hover:#000;--title:#333;
+    --ok:#1a8a1a;--err:#c00;--sel-bg:highlight;--sel-fg:highlighttext;
+  }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:monospace;display:flex;flex-direction:column;height:100vh;background:#1e1e1e;color:#d4d4d4;overflow:hidden}
-  #toolbar{padding:6px 10px;background:#252526;border-bottom:1px solid #3c3c3c;display:flex;gap:8px;align-items:center;flex-shrink:0}
-  #toolbar button{padding:3px 10px;background:#0e639c;color:#fff;border:none;cursor:pointer;border-radius:2px;font-size:12px}
-  #toolbar button:hover{background:#1177bb}
-  #status{font-size:11px;color:#858585;margin-left:8px}
+  body{font-family:monospace;display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);overflow:hidden}
+  #toolbar{padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-shrink:0}
+  #toolbar button{padding:3px 10px;background:var(--btn-bg);color:var(--btn-fg);border:none;cursor:pointer;border-radius:2px;font-size:12px}
+  #toolbar button:hover{background:var(--btn-hover)}
+  #status{font-size:11px;color:var(--muted);margin-left:8px}
   #main{display:flex;flex:1;overflow:hidden}
   .pane{display:flex;flex-direction:column;flex:1;overflow:hidden}
   #raw-pane{overflow:hidden}
-  .pane-label{padding:3px 8px;background:#252526;font-size:11px;color:#858585;border-bottom:1px solid #3c3c3c;flex-shrink:0;user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pane-label{padding:3px 8px;background:var(--panel);font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);flex-shrink:0;user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #editor-wrap{position:relative;flex:1;overflow:hidden;display:flex}
-  #line-nums{width:44px;padding:8px 4px 8px 0;text-align:right;color:#555;font-size:13px;line-height:20px;background:#1e1e1e;flex-shrink:0;overflow:hidden;user-select:none;border-right:1px solid #3c3c3c;white-space:pre}
+  #line-nums{width:44px;padding:8px 4px 8px 0;text-align:right;color:var(--line-num);font-size:13px;line-height:20px;background:var(--bg);flex-shrink:0;overflow:hidden;user-select:none;border-right:1px solid var(--border);white-space:pre}
   #editor-inner{position:relative;flex:1;overflow:hidden}
-  #raw{position:absolute;inset:0;padding:8px;background:#1e1e1e;color:#d4d4d4;font-size:13px;line-height:20px;border:none;outline:none;resize:none;white-space:pre;overflow:auto;caret-color:#fff;font-family:monospace;tab-size:2}
-  #tree-pane{background:#1e1e1e}
+  #raw{position:absolute;inset:0;padding:8px;background:var(--bg);color:var(--fg);font-size:13px;line-height:20px;border:none;outline:none;resize:none;white-space:pre;overflow:auto;caret-color:var(--caret);font-family:monospace;tab-size:2}
+  #tree-pane{background:var(--bg)}
   #tree-scroll{flex:1;overflow:auto;padding:6px 4px}
   .n{user-select:none}
   .row{display:flex;align-items:baseline;padding:1px 3px;cursor:pointer;border-radius:3px;white-space:nowrap;font-size:13px;line-height:20px}
-  .row:hover{background:#2a2d2e}
-  .row.active{background:#094771}
-  .tog{width:14px;flex-shrink:0;font-size:9px;color:#777;text-align:center}
-  .k{color:#9cdcfe}
-  .sep{color:#d4d4d4;margin-right:4px}
-  .vs{color:#ce9178}
-  .vn{color:#b5cea8}
-  .vb{color:#569cd6}
-  .vnull{color:#569cd6}
-  .preview{color:#666;font-size:11px;margin-left:3px}
-  .children{margin-left:14px;border-left:1px solid #333}
-  .closer{padding:1px 3px 1px 17px;font-size:13px;color:#888;line-height:20px}
-  #drag{width:4px;background:#3c3c3c;cursor:col-resize;flex-shrink:0;transition:background .1s}
-  #drag:hover,#drag.dragging{background:#0e639c}
-  .err{color:#f44;font-size:12px;padding:6px 8px}
-  #breadcrumbs{padding:3px 10px;background:#1e1e1e;border-bottom:1px solid #3c3c3c;font-size:12px;line-height:18px;flex-shrink:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#858585}
-  #breadcrumbs span{cursor:pointer;color:#858585}
-  #breadcrumbs span:hover{color:#d4d4d4;text-decoration:underline}
-  #breadcrumbs .bc-sep{cursor:default;color:#555;margin:0 2px}
-  #breadcrumbs .bc-sep:hover{color:#555;text-decoration:none}
-  #breadcrumbs .bc-active{color:#ccc}
+  .row:hover{background:var(--row-hover)}
+  .row.active{background:var(--row-active)}
+  .tog{width:14px;flex-shrink:0;font-size:9px;color:var(--tog);text-align:center}
+  .k{color:var(--key)}
+  .sep{color:var(--fg);margin-right:4px}
+  .vs{color:var(--str)}
+  .vn{color:var(--num)}
+  .vb{color:var(--kw)}
+  .vnull{color:var(--kw)}
+  .preview{color:var(--preview);font-size:11px;margin-left:3px}
+  .children{margin-left:14px;border-left:1px solid var(--tree-line)}
+  .closer{padding:1px 3px 1px 17px;font-size:13px;color:var(--closer);line-height:20px}
+  #drag{width:4px;background:var(--drag);cursor:col-resize;flex-shrink:0;transition:background .1s}
+  #drag:hover,#drag.dragging{background:var(--drag-hl)}
+  .err{color:var(--err);font-size:12px;padding:6px 8px}
+  #breadcrumbs{padding:3px 10px;background:var(--bg);border-bottom:1px solid var(--border);font-size:12px;line-height:18px;flex-shrink:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}
+  #breadcrumbs span{cursor:pointer;color:var(--muted)}
+  #breadcrumbs span:hover{color:var(--bc-hover);text-decoration:underline}
+  #breadcrumbs .bc-sep{cursor:default;color:var(--bc-sep);margin:0 2px}
+  #breadcrumbs .bc-sep:hover{color:var(--bc-sep);text-decoration:none}
+  #breadcrumbs .bc-active{color:var(--bc-active)}
 </style>
 </head>
 <body>
 <div id="toolbar">
-  <span style="color:#ccc;font-size:12px;font-weight:bold">JSON Dual View</span>
+  <span style="color:var(--title);font-size:12px;font-weight:bold">JSON Dual View</span>
   <button onclick="loadSample()">Sample</button>
   <button onclick="fmtBtn()">Format</button>
   <button onclick="compactBtn()">Compact</button>
   <button onclick="collapseAll()">Collapse All</button>
   <span id="status"></span>
   <button onclick="swapPanes()" style="margin-left:auto">Swap Panes</button>
+  <button onclick="toggleTheme()" id="theme-btn">Dark</button>
 </div>
 <div id="breadcrumbs">&nbsp;</div>
 <div id="main">
@@ -405,7 +424,7 @@ function updateView(text){
   renderLineNums(text);
   if(!expandedPaths.size) expandedPaths.add(parsedData.length === 1 ? '/0' : '/');
   renderTree();
-  statusEl.style.color='#4ec94e';
+  statusEl.style.color='var(--ok)';
   statusEl.textContent = parsedData.length > 1
     ? `✓ NDJSON (${parsedData.length} records)`
     : '✓ valid JSON';
@@ -433,12 +452,12 @@ raw.addEventListener('keyup', e=>{ if(!['Shift','Control','Alt','Meta'].includes
 raw.addEventListener('input', ()=>{
   clearTimeout(debounceTimer);
   statusEl.textContent = '…';
-  statusEl.style.color='#858585';
+  statusEl.style.color='var(--muted)';
   debounceTimer = setTimeout(()=>{
     try {
       updateView(raw.value);
     } catch(e){
-      statusEl.style.color='#f44';
+      statusEl.style.color='var(--err)';
       statusEl.textContent = '✗ '+e.message;
       renderLineNums(raw.value);
     }
@@ -457,7 +476,7 @@ function fmtBtn(){
     raw.scrollLeft = 0;
     raw.scrollTop = 0;
     updateView(fmt);
-  } catch(e){ statusEl.style.color='#f44'; statusEl.textContent = '✗ '+e.message; }
+  } catch(e){ statusEl.style.color='var(--err)'; statusEl.textContent = '✗ '+e.message; }
 }
 function compactBtn(){
   try {
@@ -470,7 +489,7 @@ function compactBtn(){
     raw.scrollLeft = 0;
     raw.scrollTop = 0;
     updateView(compact);
-  } catch(e){ statusEl.style.color='#f44'; statusEl.textContent = '✗ '+e.message; }
+  } catch(e){ statusEl.style.color='var(--err)'; statusEl.textContent = '✗ '+e.message; }
 }
 function collapseAll(){
   expandedPaths.clear();
@@ -509,6 +528,16 @@ function swapPanes(){
     newRight.style.flex = '1';
   }
   saveSetting('treeLeft', treeLeft);
+}
+
+function applyTheme(dark){
+  document.body.classList.toggle('light', !dark);
+  document.getElementById('theme-btn').textContent = dark ? 'Light' : 'Dark';
+}
+function toggleTheme(){
+  const dark = document.body.classList.contains('light');
+  applyTheme(dark);
+  saveSetting('dark', dark);
 }
 
 function loadSample(){
@@ -578,6 +607,7 @@ document.addEventListener('mouseup', ()=>{
 // ── Init ───────────────────────────────────────────────────────────────────
 (function init(){
   const s = loadSettings();
+  applyTheme(s.dark === true);
   applyPaneOrder(s.treeLeft !== false);
   const main = document.getElementById('main');
   const leftPane = main.children[0];
