@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>JSON Dual View</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:monospace;display:flex;flex-direction:column;height:100vh;background:#1e1e1e;color:#d4d4d4;overflow:hidden}
+  #toolbar{padding:6px 10px;background:#252526;border-bottom:1px solid #3c3c3c;display:flex;gap:8px;align-items:center;flex-shrink:0}
+  #toolbar button{padding:3px 10px;background:#0e639c;color:#fff;border:none;cursor:pointer;border-radius:2px;font-size:12px}
+  #toolbar button:hover{background:#1177bb}
+  #status{font-size:11px;color:#858585;margin-left:8px}
+  #main{display:flex;flex:1;overflow:hidden}
+  .pane{display:flex;flex-direction:column;flex:1;overflow:hidden}
+  #raw-pane{border-right:2px solid #3c3c3c}
+  .pane-label{padding:3px 8px;background:#252526;font-size:11px;color:#858585;border-bottom:1px solid #3c3c3c;flex-shrink:0;user-select:none}
+  #editor-wrap{position:relative;flex:1;overflow:hidden;display:flex}
+  #line-nums{width:44px;padding:8px 4px 8px 0;text-align:right;color:#555;font-size:13px;line-height:20px;background:#1e1e1e;flex-shrink:0;overflow:hidden;user-select:none;border-right:1px solid #3c3c3c}
+  #editor-inner{position:relative;flex:1;overflow:hidden}
+  #highlight-layer{position:absolute;inset:0;padding:8px;font-size:13px;line-height:20px;white-space:pre;overflow:hidden;pointer-events:none;color:transparent;word-break:break-all}
+  .hl{background:rgba(255,200,50,.18);color:transparent;display:inline}
+  #raw{position:absolute;inset:0;padding:8px;background:transparent;color:#d4d4d4;font-size:13px;line-height:20px;border:none;outline:none;resize:none;white-space:pre;overflow:auto;caret-color:#fff;font-family:monospace;tab-size:2;z-index:1}
+  #tree-pane{background:#1e1e1e}
+  #tree-scroll{flex:1;overflow:auto;padding:6px 4px}
+  .n{user-select:none}
+  .row{display:flex;align-items:baseline;padding:1px 3px;cursor:pointer;border-radius:3px;white-space:nowrap;font-size:13px;line-height:20px}
+  .row:hover{background:#2a2d2e}
+  .row.active{background:#094771}
+  .tog{width:14px;flex-shrink:0;font-size:9px;color:#777;text-align:center}
+  .k{color:#9cdcfe}
+  .sep{color:#d4d4d4;margin-right:4px}
+  .vs{color:#ce9178}
+  .vn{color:#b5cea8}
+  .vb{color:#569cd6}
+  .vnull{color:#569cd6}
+  .preview{color:#666;font-size:11px;margin-left:3px}
+  .children{margin-left:14px;border-left:1px solid #333}
+  .closer{padding:1px 3px 1px 17px;font-size:13px;color:#888;line-height:20px}
+  #drag{width:4px;background:#3c3c3c;cursor:col-resize;flex-shrink:0;transition:background .1s}
+  #drag:hover,#drag.dragging{background:#0e639c}
+  .err{color:#f44;font-size:12px;padding:6px 8px}
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <span style="color:#ccc;font-size:12px;font-weight:bold">JSON Dual View</span>
+  <button onclick="loadSample()">Sample</button>
+  <button onclick="fmtBtn()">Format</button>
+  <button onclick="collapseAll()">Collapse All</button>
+  <span id="status"></span>
+</div>
+<div id="main">
+  <div class="pane" id="raw-pane">
+    <div class="pane-label">RAW ✏️  (edit here — tree updates on valid JSON)</div>
+    <div id="editor-wrap">
+      <div id="line-nums"></div>
+      <div id="editor-inner">
+        <div id="highlight-layer"></div>
+        <textarea id="raw" spellcheck="false" placeholder="Paste or type JSON here…"></textarea>
+      </div>
+    </div>
+  </div>
+  <div id="drag"></div>
+  <div class="pane" id="tree-pane">
+    <div class="pane-label">TREE 🌲  (click node — raw scrolls to it)</div>
+    <div id="tree-scroll"><div id="tree-content"></div></div>
+  </div>
+</div>
+<script>
+const raw = document.getElementById('raw');
+const hlLayer = document.getElementById('highlight-layer');
+const lineNums = document.getElementById('line-nums');
+const treeContent = document.getElementById('tree-content');
+const statusEl = document.getElementById('status');
+
+let parsedData = null;
+let sourceMap = {};   // path -> {sl, el}  (start/end line, 0-indexed)
+let expandedPaths = new Set(['/']);
+let activeRow = null;
+let debounceTimer = null;
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+function escPath(k){ return String(k).replace(/~/g,'~0').replace(/\//g,'~1'); }
+
+// ── Position-tracking parser ──────────────────────────────────────────────────
+// Walks the raw text directly so sourceMap line numbers always match raw.value,
+// regardless of indentation style, blank lines, or inline formatting.
+function parseWithPositions(text){
+  let pos = 0, ln = 0;
+  const map = {};
+
+  function skipWS(){
+    while(pos < text.length){
+      const c = text[pos];
+      if(c === '\n'){ ln++; pos++; }
+      else if(c === ' ' || c === '\t' || c === '\r'){ pos++; }
+      else break;
+    }
+  }
+
+  function parseStr(){
+    let s = '';
+    pos++; // skip opening "
+    while(pos < text.length){
+      const c = text[pos];
+      if(c === '"'){ pos++; return s; }
+      if(c === '\\'){
+        pos++;
+        const e = text[pos++];
+        if(e==='n') s+='\n'; else if(e==='t') s+='\t'; else if(e==='r') s+='\r';
+        else if(e==='"') s+='"'; else if(e==='\\') s+='\\'; else if(e==='/') s+='/';
+        else if(e==='b') s+='\b'; else if(e==='f') s+='\f';
+        else if(e==='u'){ s+=String.fromCharCode(parseInt(text.slice(pos,pos+4),16)); pos+=4; }
+        else s+=e;
+      } else {
+        if(c==='\n') ln++;
+        s+=c; pos++;
+      }
+    }
+    throw new Error('Unterminated string');
+  }
+
+  function parseVal(path){
+    skipWS();
+    const sl = ln;
+    let val;
+    const c = text[pos];
+    if(c === '"'){
+      val = parseStr();
+    } else if(c === '{'){
+      pos++;
+      val = {};
+      skipWS();
+      if(text[pos] !== '}'){
+        while(true){
+          skipWS();
+          const key = parseStr();
+          skipWS();
+          pos++; // skip :
+          const cp = path==='/' ? '/'+escPath(key) : path+'/'+escPath(key);
+          val[key] = parseVal(cp);
+          skipWS();
+          if(text[pos] === '}') break;
+          pos++; // skip ,
+        }
+      }
+      pos++; // skip }
+    } else if(c === '['){
+      pos++;
+      val = [];
+      skipWS();
+      if(text[pos] !== ']'){
+        let i = 0;
+        while(true){
+          const cp = path==='/' ? '/'+i : path+'/'+i;
+          val.push(parseVal(cp));
+          i++;
+          skipWS();
+          if(text[pos] === ']') break;
+          pos++; // skip ,
+        }
+      }
+      pos++; // skip ]
+    } else if(text.startsWith('null',pos)){
+      val=null; pos+=4;
+    } else if(text.startsWith('true',pos)){
+      val=true; pos+=4;
+    } else if(text.startsWith('false',pos)){
+      val=false; pos+=5;
+    } else {
+      const m = text.slice(pos).match(/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/);
+      if(!m) throw new Error('Unexpected token at pos '+pos);
+      val = Number(m[0]); pos += m[0].length;
+    }
+    map[path] = {sl, el: ln};
+    return val;
+  }
+
+  const data = parseVal('/');
+  return {data, map};
+}
+
+// ── Path at line (reverse lookup) ──────────────────────────────────────────
+function pathAtLine(line){
+  let best='/', bestRange=Infinity;
+  for(const [p,{sl,el}] of Object.entries(sourceMap)){
+    if(line>=sl && line<=el){
+      const range=el-sl;
+      if(range<bestRange){ bestRange=range; best=p; }
+    }
+  }
+  return best;
+}
+
+// ── Highlight raw lines ────────────────────────────────────────────────────
+function escHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function highlightRaw(sl, el){
+  const lines = raw.value.split('\n');
+  const html = lines.map((ln,i)=>{
+    const e = escHtml(ln);
+    return (i>=sl && i<=el) ? '<span class="hl">'+e+'\n</span>' : escHtml(ln)+'\n';
+  }).join('');
+  hlLayer.innerHTML = html;
+  // scroll raw to show start line BEFORE syncing the layer transform
+  const lineH = 20;
+  const targetY = sl * lineH;
+  const viewH = raw.clientHeight - 16;
+  if(targetY < raw.scrollTop || targetY > raw.scrollTop + viewH - lineH){
+    raw.scrollTop = Math.max(0, targetY - viewH/3);
+  }
+  syncLayerScroll();  // sync AFTER scrollTop is updated so transform is correct
+}
+
+function clearHighlight(){ hlLayer.innerHTML = ''; }
+
+function syncLayerScroll(){
+  hlLayer.style.transform = `translateY(-${raw.scrollTop}px) translateX(-${raw.scrollLeft}px)`;
+}
+
+raw.addEventListener('scroll', ()=>{
+  syncLayerScroll();
+  lineNums.scrollTop = raw.scrollTop;
+});
+
+// ── Render line numbers ────────────────────────────────────────────────────
+function renderLineNums(text){
+  const count = (text.match(/\n/g)||[]).length + 1;
+  let html='';
+  for(let i=1;i<=count;i++) html += i+'\n';
+  lineNums.textContent = html;
+}
+
+// ── Tree rendering ─────────────────────────────────────────────────────────
+function makeRow(keyName, val, path, isLast){
+  const isObj = val !== null && typeof val === 'object';
+  const isExp = expandedPaths.has(path);
+
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.dataset.path = path;
+
+  // toggle
+  const tog = document.createElement('span');
+  tog.className = 'tog';
+  if(isObj) tog.textContent = isExp ? '▾' : '▸';
+  row.appendChild(tog);
+
+  // key
+  if(keyName !== null){
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = JSON.stringify(String(keyName));
+    row.appendChild(k);
+    const sep = document.createElement('span');
+    sep.className = 'sep';
+    sep.textContent = ': ';
+    row.appendChild(sep);
+  }
+
+  // value / preview
+  if(!isObj){
+    const v = document.createElement('span');
+    v.className = val===null ? 'vnull' : typeof val==='string' ? 'vs' : typeof val==='number' ? 'vn' : 'vb';
+    v.textContent = JSON.stringify(val);
+    row.appendChild(v);
+  } else {
+    const p = document.createElement('span');
+    p.className = 'preview';
+    const isArr = Array.isArray(val);
+    if(isExp)  p.textContent = isArr ? '[' : '{';
+    else       p.textContent = isArr ? `[ ${val.length} items ]` : `{ ${Object.keys(val).length} keys }`;
+    row.appendChild(p);
+  }
+
+  row.addEventListener('click', e=>{
+    e.stopPropagation();
+    if(isObj){
+      if(expandedPaths.has(path)) expandedPaths.delete(path);
+      else expandedPaths.add(path);
+      renderTree(parsedData);
+    }
+    // After renderTree the old 'row' element is detached; re-query by path
+    const liveRow = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`) || row;
+    activateRow(liveRow);
+    const info = sourceMap[path];
+    if(info) highlightRaw(info.sl, info.el);
+  });
+
+  return row;
+}
+
+function renderNode(keyName, val, path, isLast){
+  const isObj = val !== null && typeof val === 'object';
+  const isExp = expandedPaths.has(path);
+  const node = document.createElement('div');
+  node.className = 'n';
+
+  const row = makeRow(keyName, val, path, isLast);
+  node.appendChild(row);
+
+  if(isObj && isExp){
+    const ch = document.createElement('div');
+    ch.className = 'children';
+    if(Array.isArray(val)){
+      val.forEach((item,i)=> ch.appendChild(renderNode(i, item, (path==='/'?'':path)+'/'+i, i===val.length-1)));
+    } else {
+      const keys = Object.keys(val);
+      keys.forEach((k,i)=> ch.appendChild(renderNode(k, val[k], (path==='/'?'':path)+'/'+escPath(k), i===keys.length-1)));
+    }
+    node.appendChild(ch);
+    const cl = document.createElement('div');
+    cl.className = 'closer';
+    cl.textContent = (Array.isArray(val)?']':'}') + (isLast?'':',');
+    node.appendChild(cl);
+  }
+  return node;
+}
+
+function renderTree(data){
+  treeContent.innerHTML = '';
+  if(!data && data !== null){ treeContent.innerHTML='<div class="err">No data</div>'; return; }
+  treeContent.appendChild(renderNode(null, data, '/', true));
+}
+
+function activateRow(rowEl){
+  if(activeRow) activeRow.classList.remove('active');
+  activeRow = rowEl;
+  if(rowEl){ rowEl.classList.add('active'); rowEl.scrollIntoView({block:'nearest'}); }
+}
+
+// ── Parse & full update (Format / Sample / load) ──────────────────────────
+function parseAndRender(text){
+  try {
+    // Format button / Sample: re-serialize to canonical form, then position-track it
+    const fmt = JSON.stringify(JSON.parse(text), null, 2);
+    raw.value = fmt;
+    const r = parseWithPositions(fmt);
+    parsedData = r.data;
+    sourceMap  = r.map;
+    renderLineNums(fmt);
+    renderTree(parsedData);
+    clearHighlight();
+    statusEl.style.color='#4ec94e';
+    statusEl.textContent = '✓ valid JSON';
+  } catch(e){
+    statusEl.style.color='#f44';
+    statusEl.textContent = '✗ '+e.message;
+    renderLineNums(raw.value);
+  }
+}
+
+// ── Sync: cursor in raw → tree ─────────────────────────────────────────────
+function syncTreeFromCursor(){
+  if(!parsedData) return;
+  const pos = raw.selectionStart;
+  const before = raw.value.substring(0,pos);
+  const line = (before.match(/\n/g)||[]).length;
+  const path = pathAtLine(line);
+  // expand ancestors
+  const parts = path.split('/').filter(Boolean);
+  let cur = '/';
+  expandedPaths.add('/');
+  for(const p of parts){ cur = cur==='/'? '/'+p : cur+'/'+p; expandedPaths.add(cur); }
+  renderTree(parsedData);
+  // find and activate the row
+  const rowEl = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`);
+  activateRow(rowEl);
+  const info = sourceMap[path];
+  if(info) highlightRaw(info.sl, info.el);
+}
+
+raw.addEventListener('click', syncTreeFromCursor);
+raw.addEventListener('keyup', e=>{ if(!['Shift','Control','Alt','Meta'].includes(e.key)) syncTreeFromCursor(); });
+
+// ── Raw editing (debounced) ────────────────────────────────────────────────
+raw.addEventListener('input', ()=>{
+  clearTimeout(debounceTimer);
+  statusEl.textContent = '…';
+  statusEl.style.color='#858585';
+  debounceTimer = setTimeout(()=>{
+    const text = raw.value;
+    try {
+      // Parse with position tracking directly from the user's text — no reformatting
+      const r = parseWithPositions(text);
+      parsedData = r.data;
+      sourceMap  = r.map;
+      renderLineNums(text);
+      renderTree(parsedData);
+      statusEl.style.color='#4ec94e';
+      statusEl.textContent = '✓ valid JSON';
+    } catch(e){
+      statusEl.style.color='#f44';
+      statusEl.textContent = '✗ '+e.message;
+      renderLineNums(text);
+    }
+  }, 400);
+});
+
+// ── Toolbar buttons ────────────────────────────────────────────────────────
+function fmtBtn(){ if(parsedData!==undefined && parsedData!==null || raw.value.trim()) parseAndRender(raw.value); }
+function collapseAll(){ expandedPaths.clear(); expandedPaths.add('/'); renderTree(parsedData); clearHighlight(); }
+function loadSample(){
+  const sample = {
+    "store": {
+      "name": "Example Store",
+      "open": true,
+      "rating": 4.7,
+      "address": { "street": "123 Main St", "city": "Toronto", "zip": "M5V 1A1" },
+      "inventory": [
+        { "id": 1, "name": "Widget Alpha", "price": 9.99, "tags": ["sale","new"] },
+        { "id": 2, "name": "Widget Beta",  "price": 19.99, "tags": ["popular"] },
+        { "id": 3, "name": "Gadget Gamma", "price": 49.99, "tags": [], "specs": { "weight": "120g", "color": "black" } }
+      ],
+      "contact": null
+    }
+  };
+  parseAndRender(JSON.stringify(sample));
+}
+
+// ── Drag to resize panes ───────────────────────────────────────────────────
+const dragEl = document.getElementById('drag');
+const rawPane = document.getElementById('raw-pane');
+const treePane = document.getElementById('tree-pane');
+let dragging = false, startX, startW;
+dragEl.addEventListener('mousedown', e=>{
+  dragging=true; startX=e.clientX; startW=rawPane.offsetWidth;
+  dragEl.classList.add('dragging');
+  document.body.style.cursor='col-resize';
+  document.body.style.userSelect='none';
+});
+document.addEventListener('mousemove', e=>{
+  if(!dragging) return;
+  const main = document.getElementById('main');
+  const totalW = main.offsetWidth - 4;
+  const newW = Math.min(Math.max(startW + e.clientX - startX, 200), totalW-200);
+  rawPane.style.flex='none';
+  rawPane.style.width=newW+'px';
+  treePane.style.flex='1';
+});
+document.addEventListener('mouseup', ()=>{
+  if(!dragging) return;
+  dragging=false; dragEl.classList.remove('dragging');
+  document.body.style.cursor=''; document.body.style.userSelect='';
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────
+loadSample();
+</script>
+</body>
+</html>
