@@ -37,6 +37,12 @@
   #drag{width:4px;background:#3c3c3c;cursor:col-resize;flex-shrink:0;transition:background .1s}
   #drag:hover,#drag.dragging{background:#0e639c}
   .err{color:#f44;font-size:12px;padding:6px 8px}
+  #breadcrumbs{padding:3px 10px;background:#1e1e1e;border-bottom:1px solid #3c3c3c;font-size:12px;line-height:18px;flex-shrink:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#858585}
+  #breadcrumbs span{cursor:pointer;color:#858585}
+  #breadcrumbs span:hover{color:#d4d4d4;text-decoration:underline}
+  #breadcrumbs .bc-sep{cursor:default;color:#555;margin:0 2px}
+  #breadcrumbs .bc-sep:hover{color:#555;text-decoration:none}
+  #breadcrumbs .bc-active{color:#ccc}
 </style>
 </head>
 <body>
@@ -48,6 +54,7 @@
   <button onclick="collapseAll()">Collapse All</button>
   <span id="status"></span>
 </div>
+<div id="breadcrumbs">&nbsp;</div>
 <div id="main">
   <div class="pane" id="raw-pane">
     <div class="pane-label">RAW ✏️  (edit here — tree updates on valid JSON)</div>
@@ -69,6 +76,7 @@ const raw = document.getElementById('raw');
 const lineNums = document.getElementById('line-nums');
 const treeContent = document.getElementById('tree-content');
 const statusEl = document.getElementById('status');
+const breadcrumbsEl = document.getElementById('breadcrumbs');
 
 let parsedData = [];  // always an array of records
 let sourceMap = {};   // path -> {sl, el, sp, ep}  (line range 0-indexed + char offsets)
@@ -324,6 +332,8 @@ function renderNode(keyName, val, path, isLast){
 }
 
 function renderTree(){
+  const treeScroll = document.getElementById('tree-scroll');
+  const savedTop = treeScroll.scrollTop;
   treeContent.innerHTML = '';
   if(!parsedData.length){ treeContent.innerHTML='<div class="err">No data</div>'; return; }
   if(parsedData.length === 1){
@@ -331,12 +341,52 @@ function renderTree(){
   } else {
     treeContent.appendChild(renderNode(null, parsedData, '/', true));
   }
+  treeScroll.scrollTop = savedTop;
 }
 
 function activateRow(rowEl){
   if(activeRow) activeRow.classList.remove('active');
   activeRow = rowEl;
   if(rowEl){ rowEl.classList.add('active'); rowEl.scrollIntoView({block:'nearest'}); }
+  updateBreadcrumbs(rowEl ? rowEl.dataset.path : null);
+}
+
+function unescPath(s){ return s.replace(/~1/g,'/').replace(/~0/g,'~'); }
+
+function updateBreadcrumbs(path){
+  breadcrumbsEl.innerHTML = '';
+  if(!path){ breadcrumbsEl.textContent = '\u00A0'; return; }
+  const parts = path.split('/').filter(Boolean);
+  const segments = [];
+  let cur = '';
+  for(const p of parts){
+    cur += '/' + p;
+    segments.push({path: cur, label: unescPath(p)});
+  }
+  segments.forEach((seg, i) => {
+    if(i > 0){
+      const sep = document.createElement('span');
+      sep.className = 'bc-sep';
+      sep.textContent = ' > ';
+      breadcrumbsEl.appendChild(sep);
+    }
+    const span = document.createElement('span');
+    span.textContent = seg.label;
+    if(i === segments.length - 1) span.classList.add('bc-active');
+    span.addEventListener('click', ()=>{
+      const info = sourceMap[seg.path];
+      if(!info) return;
+      const anc = seg.path.split('/').filter(Boolean);
+      let c = '/';
+      expandedPaths.add('/');
+      for(const a of anc){ c = c==='/'? '/'+a : c+'/'+a; expandedPaths.add(c); }
+      renderTree();
+      const row = treeContent.querySelector(`.row[data-path="${CSS.escape(seg.path)}"]`);
+      activateRow(row);
+      selectRaw(info);
+    });
+    breadcrumbsEl.appendChild(span);
+  });
 }
 
 // ── Parse & update view ──────────────────────────────────────────────────
@@ -396,6 +446,8 @@ function fmtBtn(){
       ? JSON.stringify(parsedData[0], null, 2)
       : parsedData.map(r => JSON.stringify(r, null, 2)).join('\n\n');
     raw.value = fmt;
+    raw.scrollLeft = 0;
+    raw.scrollTop = 0;
     updateView(fmt);
   } catch(e){ statusEl.style.color='#f44'; statusEl.textContent = '✗ '+e.message; }
 }
@@ -407,6 +459,8 @@ function compactBtn(){
       ? JSON.stringify(parsedData[0])
       : parsedData.map(r => JSON.stringify(r)).join('\n');
     raw.value = compact;
+    raw.scrollLeft = 0;
+    raw.scrollTop = 0;
     updateView(compact);
   } catch(e){ statusEl.style.color='#f44'; statusEl.textContent = '✗ '+e.message; }
 }
