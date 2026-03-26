@@ -68,6 +68,7 @@
 <div id="toolbar">
   <span style="color:var(--title);font-size:12px;font-weight:bold">JSON Dual View</span>
   <button onclick="loadSample()" style="background:var(--muted)">Sample</button>
+  <button onclick="fetchUrl()">Fetch URL</button>
   <button onclick="collapseAll()">Collapse All</button>
   <button onclick="compactBtn()">Compact</button>
   <button onclick="fmtBtn()">Format</button>
@@ -566,6 +567,26 @@ function loadSample(){
   expandedPaths.clear();
   expandedPaths.add('/0');
   try { updateView(fmt); } catch(e){ statusEl.textContent = '✗ '+e.message; }
+}
+
+async function fetchUrl(){
+  const url = prompt('Enter URL to fetch JSON / NDJSON from:');
+  if(!url) return;
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Fetching…';
+  try {
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    const text = await resp.text();
+    raw.value = text;
+    raw.scrollTop = 0;
+    raw.scrollLeft = 0;
+    expandedPaths.clear();
+    updateView(text);
+  } catch(e){
+    statusEl.style.color = 'var(--err)';
+    statusEl.textContent = '✗ Fetch failed: ' + e.message;
+  }
 }
 
 // ── Settings (localStorage) ───────────────────────────────────────────────
