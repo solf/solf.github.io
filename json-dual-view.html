@@ -453,6 +453,12 @@ function syncTreeFromCursor(){
 
 raw.addEventListener('click', syncTreeFromCursor);
 raw.addEventListener('keyup', e=>{ if(!['Shift','Control','Alt','Meta'].includes(e.key)) syncTreeFromCursor(); });
+let selSyncTimer = null;
+document.addEventListener('selectionchange', ()=>{
+  if(document.activeElement !== raw) return;
+  clearTimeout(selSyncTimer);
+  selSyncTimer = setTimeout(syncTreeFromCursor, 80);
+});
 
 // ── Raw editing (debounced) ────────────────────────────────────────────────
 raw.addEventListener('input', ()=>{
@@ -623,7 +629,9 @@ document.addEventListener('mouseup', ()=>{
     leftPane.style.width = w + 'px';
     main.children[2].style.flex = '1';
   }
-  loadSample();
+  if(raw.value.trim()){
+    try { updateView(raw.value); } catch(e){ renderLineNums(raw.value); }
+  }
 })();
 </script>
 </body>
