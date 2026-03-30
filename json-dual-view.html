@@ -284,7 +284,10 @@ function makeRow(keyName, val, path, isLast){
   // toggle
   const tog = document.createElement('span');
   tog.className = 'tog';
-  if(isObj) tog.textContent = isExp ? '▾' : '▸';
+  if(isObj){
+    tog.textContent = isExp ? '▾' : '▸';
+    tog.addEventListener('mousedown', e=> e.preventDefault());
+  }
   row.appendChild(tog);
 
   // key
@@ -321,12 +324,13 @@ function makeRow(keyName, val, path, isLast){
 
   row.addEventListener('click', e=>{
     e.stopPropagation();
+    const togClick = isObj && e.target === tog;
     if(isObj){
       if(expandedPaths.has(path)) expandedPaths.delete(path);
       else expandedPaths.add(path);
       renderTree();
     }
-    // After renderTree the old 'row' element is detached; re-query by path
+    if(togClick) return;
     const liveRow = treeContent.querySelector(`.row[data-path="${CSS.escape(path)}"]`) || row;
     activateRow(liveRow);
     const info = sourceMap[path];
