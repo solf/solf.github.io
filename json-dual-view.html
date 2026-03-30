@@ -108,6 +108,7 @@ const breadcrumbsEl = document.getElementById('breadcrumbs');
 
 let parsedData = [];  // always an array of records
 let sourceMap = {};   // path -> {sl, el, sp, ep}  (line range 0-indexed + char offsets)
+let numRawMap = {};   // path -> original number text (only for precision-lossy numbers)
 let expandedPaths = new Set();
 let activeRow = null;
 let debounceTimer = null;
@@ -120,7 +121,7 @@ function escPath(k){ return String(k).replace(/~/g,'~0').replace(/\//g,'~1'); }
 // regardless of indentation style, blank lines, or inline formatting.
 function parseWithPositions(text){
   let pos = 0, ln = 0;
-  const map = {};
+  const map = {}, numRaw = {};
 
   function skipWS(){
     while(pos < text.length){
@@ -205,7 +206,9 @@ function parseWithPositions(text){
     } else {
       const m = text.slice(pos).match(/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/);
       if(!m) throw new Error('Unexpected token at pos '+pos);
-      val = Number(m[0]); pos += m[0].length;
+      const raw = m[0];
+      val = Number(raw); pos += raw.length;
+      if(String(val) !== raw) numRaw[path] = raw;
     }
     map[path] = {sl, el: ln, sp, ep: pos};
     return val;
@@ -219,7 +222,7 @@ function parseWithPositions(text){
   }
   if(records.length === 0) throw new Error('Empty input');
   if(records.length > 1) map['/'] = {sl: 0, el: ln, sp: 0, ep: pos};
-  return {data: records, map};
+  return {data: records, map, numRaw};
 }
 
 // ── Path at cursor position (reverse lookup) ─────────────────────────────
@@ -307,7 +310,7 @@ function makeRow(keyName, val, path, isLast){
   if(!isObj){
     const v = document.createElement('span');
     v.className = val===null ? 'vnull' : typeof val==='string' ? 'vs' : typeof val==='number' ? 'vn' : 'vb';
-    v.textContent = JSON.stringify(val);
+    v.textContent = numRawMap[path] || JSON.stringify(val);
     row.appendChild(v);
   } else {
     const p = document.createElement('span');
@@ -449,6 +452,7 @@ function updateView(text){
   const r = parseWithPositions(text);
   parsedData = r.data;
   sourceMap  = r.map;
+  numRawMap  = r.numRaw;
   renderLineNums(text);
   if(!expandedPaths.size) expandedPaths.add(parsedData.length === 1 ? '/0' : '/');
   renderTree();
